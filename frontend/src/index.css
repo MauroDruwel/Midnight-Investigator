@@ -1,0 +1,197 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Press Start 2P', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  line-height: 1.6;
+  font-weight: 400;
+  color: #07d900;
+  background-color: #de5c5c;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --glow: #22c55e;
+  --glow-soft: rgba(34, 197, 94, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.08), transparent 35%),
+    radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.08), transparent 25%),
+    #020202;
+  color: #c7f7c5;
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.6), rgba(3, 7, 18, 0.9));
+}
+
+a {
+  color: inher
+  it;
+}
+
+::selection {
+  background: rgba(34, 197, 94, 0.35);
+  color: #e8ffe7;
+}
+
+.mam-back-btn {
+  position: fixed;
+  top: 22px;
+  left: 22px;
+  z-index: 9999;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 3px solid #fff3d6;
+  background: #2d2540;
+  color: #fff3d6;
+
+  font-family: inherit;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+
+  transform: rotate(-3deg);
+  box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.mam-back-btn:hover {
+  transform: rotate(-3deg) translate(-2px, -2px);
+  box-shadow: 10px 10px 0 rgba(0, 0, 0, 0.5);
+  background: #3a2f52;
+}
+
+.mam-back-btn:active {
+  transform: rotate(-3deg) translate(0, 0);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+}
+
+.mam-back-btn:focus-visible {
+  outline: 3px solid rgba(34, 197, 94, 0.8);
+  outline-offset: 3px;
+}
+
+.mam-back-btn__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  border: 3px solid #fff3d6;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mam-back-btn__label {
+  font-size: 13px;
+  line-height: 1;
+}
+
+@media (max-width: 520px) {
+  .mam-back-btn {
+    top: 14px;
+    left: 14px;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+  .mam-back-btn__label {
+    font-size: 12px;
+  }
+}
+
+.mam-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 3px solid #fff3d6;
+  background: #2d2540;
+  color: #fff3d6;
+
+  font-family: inherit;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+
+  transform: rotate(2deg);
+  box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.mam-action-btn:hover {
+  transform: rotate(2deg) translate(-2px, -2px);
+  box-shadow: 10px 10px 0 rgba(0, 0, 0, 0.5);
+  background: #3a2f52;
+}
+
+.mam-action-btn:disabled,
+.mam-action-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: rotate(2deg);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.25);
+  background: rgba(45, 37, 64, 0.75);
+}
+
+.mam-action-btn:disabled:hover,
+.mam-action-btn[aria-disabled="true"]:hover {
+  transform: rotate(2deg);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.25);
+  background: rgba(45, 37, 64, 0.75);
+}
+
+.mam-action-btn:disabled .mam-action-btn__arrow,
+.mam-action-btn[aria-disabled="true"] .mam-action-btn__arrow {
+  opacity: 0.7;
+}
+
+.mam-action-btn:active {
+  transform: rotate(2deg) translate(0, 0);
+  box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.45);
+}
+
+.mam-action-btn:focus-visible {
+  outline: 3px solid rgba(34, 197, 94, 0.8);
+  outline-offset: 3px;
+}
+
+.mam-action-btn__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9px;
+  border: 3px solid #fff3d6;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mam-action-btn__label {
+  font-size: 13px;
+  line-height: 1;
+}
