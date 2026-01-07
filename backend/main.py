@@ -127,6 +127,9 @@ async def add_interview(
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
 
     interviews = load_interviews()
+    if not isinstance(interviews, list):
+        interviews = []
+
     interviews = [iv for iv in interviews if iv.get("name") != name]
 
     interviews.append(

@@ -3,3 +3,4 @@ uvicorn
 google-genai
 dotenv
 python-multipart
+openai-whisper
