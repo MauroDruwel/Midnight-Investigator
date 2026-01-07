@@ -43,41 +43,53 @@ def analyze_guilt(transcript):
     }
     try:
         response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=30)
-    except Exception as e:
-        logger.error("analyze_guilt: request failed: %s", e)
-        logger.debug(traceback.format_exc())
-        raise RuntimeError(f"Failed to reach analysis server at {SERVER_URL}: {e}") from e
-
-    try:
         response.raise_for_status()
-    except Exception as e:
-        # surface server response for easier debugging
-        body = None
-        try:
-            body = response.text
-        except Exception:
-            body = "<unable to read response body>"
-        logger.error("analyze_guilt: server returned HTTP %s: %s", response.status_code, body)
-        logger.debug(traceback.format_exc())
-        raise RuntimeError(f"Analysis server returned HTTP {response.status_code}: {body}") from e
-
-    try:
         result = response.json()
-    except Exception:
-        logger.error("analyze_guilt: non-JSON response: %s", response.text)
-        raise RuntimeError(f"Analysis server returned non-JSON response: {response.text}")
-    guilt_level = None
-    if "choices" in result and result["choices"]:
-        content = result["choices"][0].get("message", {}).get("content", "")
+        guilt_level = None
+        if "choices" in result and result["choices"]:
+            content = result["choices"][0].get("message", {}).get("content", "")
+            try:
+                guilt_level = int(content.strip())
+            except Exception:
+                guilt_level = content.strip()
+                logger.info("analyze_guilt: non-integer content returned: %s", guilt_level)
+        else:
+            guilt_level = result
+        logger.info("analyze_guilt: result=%s", guilt_level)
+        return guilt_level
+    except Exception as e:
+        logger.error("analyze_guilt: hackclub request failed, trying Gemini: %s", e)
+        logger.debug(traceback.format_exc())
+        # Gemini fallback
         try:
-            guilt_level = int(content.strip())
-        except Exception:
-            guilt_level = content.strip()
-            logger.info("analyze_guilt: non-integer content returned: %s", guilt_level)
-    else:
-        guilt_level = result
-    logger.info("analyze_guilt: result=%s", guilt_level)
-    return guilt_level
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if not gemini_api_key:
+                raise RuntimeError("GEMINI_API_KEY not set in environment")
+            gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            prompt = PROMPT_GUILT_SYSTEM + "\n" + transcript
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            headers = {"Content-Type": "application/json"}
+            params = {"key": gemini_api_key}
+            response = requests.post(gemini_url, headers=headers, params=params, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            content = ""
+            try:
+                content = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except Exception:
+                content = str(result)
+            try:
+                guilt_level = int(content)
+            except Exception:
+                guilt_level = content
+            logger.info("analyze_guilt: Gemini result=%s", guilt_level)
+            return guilt_level
+        except Exception as ge:
+            logger.error("analyze_guilt: Gemini fallback failed: %s", ge)
+            logger.debug(traceback.format_exc())
+            raise RuntimeError(f"Both Hackclub and Gemini API failed: {ge}") from ge
 
 def analyze_summary(summary_prompt):
     logger.info("analyze_summary: starting analysis request; server=%s model=%s", SERVER_URL, MODEL)
@@ -91,36 +103,49 @@ def analyze_summary(summary_prompt):
     }
     try:
         response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=60)
-    except Exception as e:
-        logger.error("analyze_summary: request failed: %s", e)
-        logger.debug(traceback.format_exc())
-        raise RuntimeError(f"Failed to reach analysis server at {SERVER_URL}: {e}") from e
-
-    try:
         response.raise_for_status()
-    except Exception as e:
-        body = None
-        try:
-            body = response.text
-        except Exception:
-            body = "<unable to read response body>"
-        logger.error("analyze_summary: server returned HTTP %s: %s", response.status_code, body)
-        logger.debug(traceback.format_exc())
-        raise RuntimeError(f"Analysis server returned HTTP {response.status_code}: {body}") from e
-
-    try:
         result = response.json()
-    except Exception:
-        logger.error("analyze_summary: non-JSON response: %s", response.text)
-        raise RuntimeError(f"Analysis server returned non-JSON response: {response.text}")
-    summary = None
-    if "choices" in result and result["choices"]:
-        content = result["choices"][0].get("message", {}).get("content", "")
+        summary = None
+        if "choices" in result and result["choices"]:
+            content = result["choices"][0].get("message", {}).get("content", "")
+            try:
+                summary = json.loads(content)
+            except Exception:
+                summary = content.strip()
+        else:
+            summary = result
+        logger.info("analyze_summary: result type=%s", type(summary))
+        return summary
+    except Exception as e:
+        logger.error("analyze_summary: hackclub request failed, trying Gemini: %s", e)
+        logger.debug(traceback.format_exc())
+        # Gemini fallback
         try:
-            summary = json.loads(content)
-        except Exception:
-            summary = content.strip()
-    else:
-        summary = result
-    logger.info("analyze_summary: result type=%s", type(summary))
-    return summary
+            gemini_api_key = os.getenv("GEMINI_API_KEY")
+            if not gemini_api_key:
+                raise RuntimeError("GEMINI_API_KEY not set in environment")
+            gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+            prompt = PROMPT_SUMMARY_SYSTEM + "\n" + summary_prompt
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}]
+            }
+            headers = {"Content-Type": "application/json"}
+            params = {"key": gemini_api_key}
+            response = requests.post(gemini_url, headers=headers, params=params, json=payload, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+            content = ""
+            try:
+                content = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            except Exception:
+                content = str(result)
+            try:
+                summary = json.loads(content)
+            except Exception:
+                summary = content
+            logger.info("analyze_summary: Gemini result type=%s", type(summary))
+            return summary
+        except Exception as ge:
+            logger.error("analyze_summary: Gemini fallback failed: %s", ge)
+            logger.debug(traceback.format_exc())
+            raise RuntimeError(f"Both Hackclub and Gemini API failed: {ge}") from ge
