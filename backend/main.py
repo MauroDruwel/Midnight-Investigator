@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import os
@@ -7,14 +7,19 @@ import httpx
 import base64
 import logging
 import traceback
+import asyncio
+import numpy as np
+import ffmpeg
+from time import time
 
 # Basic logging to stdout for easier debugging in dev (use DEBUG to show tracebacks)
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 from backend.utils.interview_files import load_interviews, save_interviews
-from backend.utils.transcript import save_audio_file, generate_transcript
+from backend.utils.transcript import save_audio_file, generate_transcript, _load_model
 from backend.utils.analyze import analyze_guilt, analyze_summary
+from backend.utils.online_asr import OnlineASRProcessor
 
 # =====================================================
 # APP INIT (MUST BE FIRST)
@@ -314,3 +319,170 @@ async def analyze_guilt_endpoint_slash(request: Request, name: str = Form(None))
 def ping():
     """Simple health check endpoint."""
     return {"status": "ok"}
+
+# =====================================================
+# LIVE TRANSCRIPTION (WebSocket)
+# =====================================================
+
+# Constants for audio processing
+SAMPLE_RATE = 16000
+CHANNELS = 1
+MIN_CHUNK_SIZE = 1.0  # seconds
+BYTES_PER_SAMPLE = 2  # s16le = 2 bytes per sample
+BYTES_PER_SEC = int(SAMPLE_RATE * MIN_CHUNK_SIZE * BYTES_PER_SAMPLE)
+
+
+async def start_ffmpeg_decoder():
+    """
+    Start FFmpeg process to decode WebM audio to raw PCM.
+    Returns the process object.
+    """
+    process = (
+        ffmpeg.input("pipe:0", format="webm")
+        .output(
+            "pipe:1",
+            format="s16le",
+            acodec="pcm_s16le",
+            ac=CHANNELS,
+            ar=str(SAMPLE_RATE),
+        )
+        .run_async(pipe_stdin=True, pipe_stdout=True, pipe_stderr=True)
+    )
+    return process
+
+
+@app.websocket("/live-transcribe")
+async def live_transcribe_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for live audio transcription.
+    Client sends WebM audio chunks, server returns real-time transcripts.
+    """
+    await websocket.accept()
+    logger.info("WebSocket connection opened for live transcription")
+
+    ffmpeg_process = None
+    online = None
+    
+    try:
+        # Start FFmpeg decoder
+        ffmpeg_process = await start_ffmpeg_decoder()
+        pcm_buffer = bytearray()
+        
+        # Load Whisper model and create online processor
+        logger.info("Loading Whisper model for live transcription...")
+        model = _load_model()
+        online = OnlineASRProcessor(model, buffer_trimming_sec=15)
+        logger.info("Whisper model loaded, ready for streaming")
+        
+        # Background task to read FFmpeg output and process transcription
+        async def ffmpeg_stdout_reader():
+            nonlocal pcm_buffer
+            loop = asyncio.get_event_loop()
+            full_transcription = ""
+            last_time = time()
+            
+            while True:
+                try:
+                    # Calculate elapsed time for adaptive reading
+                    elapsed = max(0.1, time() - last_time)
+                    last_time = time()
+                    
+                    # Read from FFmpeg stdout
+                    read_size = min(32000 * int(elapsed) + 4096, 64000)
+                    chunk = await loop.run_in_executor(
+                        None, ffmpeg_process.stdout.read, read_size
+                    )
+                    
+                    if not chunk:
+                        logger.info("FFmpeg stdout closed")
+                        break
+                    
+                    pcm_buffer.extend(chunk)
+                    
+                    # Process when we have enough audio data
+                    if len(pcm_buffer) >= BYTES_PER_SEC:
+                        # Convert int16 PCM to float32 normalized audio
+                        pcm_array = (
+                            np.frombuffer(pcm_buffer, dtype=np.int16).astype(np.float32)
+                            / 32768.0
+                        )
+                        pcm_buffer = bytearray()
+                        
+                        # Insert audio into online processor
+                        online.insert_audio_chunk(pcm_array)
+                        
+                        # Process and get transcription
+                        beg_ts, end_ts, transcript = online.process_iter()
+                        
+                        # Get uncommitted buffer (partial results)
+                        buffer_result = online._to_flush(online.transcript_buffer.buffer)
+                        buffer_text = buffer_result[2] if buffer_result else ""
+                        
+                        # Update full transcription
+                        if transcript:
+                            full_transcription += " " + transcript
+                            full_transcription = full_transcription.strip()
+                        
+                        # Send response to client
+                        response = {
+                            "transcript": transcript if transcript else "",
+                            "buffer": buffer_text,
+                            "full_text": full_transcription,
+                            "timestamp": {"start": beg_ts, "end": end_ts} if beg_ts else None
+                        }
+                        await websocket.send_json(response)
+                        
+                except Exception as e:
+                    logger.error(f"Error in ffmpeg_stdout_reader: {e}")
+                    logger.debug(traceback.format_exc())
+                    break
+            
+            logger.info("FFmpeg reader task completed")
+        
+        # Start background reader task
+        stdout_reader_task = asyncio.create_task(ffmpeg_stdout_reader())
+        
+        # Main loop: receive WebM chunks from client
+        while True:
+            message = await websocket.receive_bytes()
+            # Feed to FFmpeg
+            ffmpeg_process.stdin.write(message)
+            ffmpeg_process.stdin.flush()
+    
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected by client")
+    except Exception as e:
+        logger.error(f"Error in WebSocket endpoint: {e}")
+        logger.debug(traceback.format_exc())
+    finally:
+        # Cleanup
+        if ffmpeg_process:
+            try:
+                ffmpeg_process.stdin.close()
+            except:
+                pass
+            try:
+                ffmpeg_process.stdout.close()
+            except:
+                pass
+            try:
+                ffmpeg_process.wait(timeout=1)
+            except:
+                ffmpeg_process.kill()
+        
+        # Finish any remaining transcription
+        if online:
+            try:
+                final = online.finish()
+                if final and final[2]:
+                    await websocket.send_json({
+                        "transcript": final[2],
+                        "buffer": "",
+                        "full_text": final[2],
+                        "timestamp": {"start": final[0], "end": final[1]},
+                        "final": True
+                    })
+            except:
+                pass
+        
+        logger.info("WebSocket connection closed and cleaned up")

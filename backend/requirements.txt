@@ -4,3 +4,8 @@ google-genai
 dotenv
 python-multipart
 openai-whisper
+ffmpeg-python
+websockets
+numpy
+soundfile
+librosa
