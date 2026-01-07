@@ -13,6 +13,9 @@ import {
 import { CloseIcon } from "@/components/expandable-card-demo-standard";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
+import { FacialAUAnalyzer } from "@/components/FacialAUAnalyzer";
+import { useAUSession } from "@/hooks/use-au-session";
+import type { AUFrame, TemporalEvent, AUValues } from "@/types/au-types";
 
 type Interview = {
   name: string;
@@ -93,6 +96,9 @@ export default function DashboardPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingName, setDeletingName] = useState<string | null>(null);
 
+  // AU Session state - stores all facial analysis data during recording
+  const auSession = useAUSession();
+  const [auAnalysisActive, setAuAnalysisActive] = useState(false);
   const fetchInterviews = useCallback(
     async (signal?: AbortSignal) => {
       setOffline(false);
@@ -220,8 +226,8 @@ export default function DashboardPage() {
       ? selectedFile
       : recordingBlob
         ? new File([recordingBlob], `${trimmedName || "recording"}.webm`, {
-            type: recordingBlob.type || "audio/webm",
-          })
+          type: recordingBlob.type || "audio/webm",
+        })
         : null;
 
     if (!sourceFile) {
@@ -235,6 +241,15 @@ export default function DashboardPage() {
     const formData = new FormData();
     formData.append("name", trimmedName);
     formData.append("file", sourceFile);
+
+    // Store AU data into a variable as requested
+    // This variable 'auData' holds the complete JSON analysis of facial movements
+    const auData = auSession.exportSession();
+    if (auData) {
+      console.log("Successfully captured AU Analysis Data into variable:", JSON.parse(auData));
+      // In a real implementation, we would append this to formData:
+      // formData.append("au_analysis", auData);
+    }
 
     try {
       const response = await fetch(`${API_BASE_URL}/interview`, {
@@ -335,6 +350,8 @@ export default function DashboardPage() {
     setMediaRecorder(null);
     setRecordingStatus("idle");
     stopVolumeMeter();
+    setAuAnalysisActive(false);
+    auSession.clearSession();
   };
 
   useEffect(() => {
@@ -398,6 +415,10 @@ export default function DashboardPage() {
       media.start(1000);
       setMediaRecorder(media);
       setRecordingStatus("recording");
+
+      // Start AU facial analysis session
+      auSession.startSession();
+      setAuAnalysisActive(true);
     } catch (error) {
       console.error("Failed to start capture", error);
       setRecordingStatus("idle");
@@ -411,7 +432,25 @@ export default function DashboardPage() {
     mediaRecorder?.stop();
     mediaStream?.getTracks().forEach((track) => track.stop());
     stopVolumeMeter();
+
+    // Stop AU facial analysis and log session data
+    setAuAnalysisActive(false);
+    auSession.stopSession();
+    console.log("[Interview] AU Session Data:", auSession.sessionData);
   };
+
+  // Callbacks for AU analyzer
+  const handleAUFrame = useCallback((frame: Omit<AUFrame, 'frameIndex'>) => {
+    auSession.addFrame(frame);
+  }, [auSession]);
+
+  const handleAUEvent = useCallback((event: TemporalEvent) => {
+    auSession.addEvent(event);
+  }, [auSession]);
+
+  const handleAUBaseline = useCallback((baseline: AUValues) => {
+    auSession.setBaseline(baseline);
+  }, [auSession]);
 
   return (
     <div className="relative h-screen w-full">
@@ -514,12 +553,37 @@ export default function DashboardPage() {
                     })}
                   </div>
                 </div>
-                <div className="flex-1 min-h-[220px] w-full overflow-hidden rounded-md border border-white/10 bg-black/40">
-                  <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+                <div className="relative flex-1 min-h-[220px] w-full overflow-hidden rounded-md border border-white/10 bg-black/40">
+                  <video ref={videoRef} className="h-full w-full object-cover" muted playsInline style={{ transform: 'scaleX(-1)' }} />
+                  {/* Facial AU Analyzer Overlay */}
+                  <FacialAUAnalyzer
+                    videoRef={videoRef}
+                    isActive={auAnalysisActive}
+                    onFrame={handleAUFrame}
+                    onEvent={handleAUEvent}
+                    onBaseline={handleAUBaseline}
+                    className="absolute inset-0"
+                  />
                 </div>
                 {recordingUrl && (
                   <div className="rounded-md border border-white/10 p-2 text-xs text-white/80">
                     Recorded clip ready. It will be sent with this entry.
+                  </div>
+                )}
+                {/* AU Session Summary */}
+                {auSession.sessionData?.summary && (
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300">
+                    <div className="font-semibold mb-1">📊 Facial Analysis Complete</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                      <span>Frames analyzed:</span>
+                      <span>{auSession.sessionData.summary.totalFrames}</span>
+                      <span>Face detection rate:</span>
+                      <span>{(auSession.sessionData.summary.faceDetectionRate * 100).toFixed(0)}%</span>
+                      <span>Avg expressiveness:</span>
+                      <span>{(auSession.sessionData.summary.averageExpressiveness * 100).toFixed(0)}%</span>
+                      <span>Rapid changes:</span>
+                      <span>{auSession.sessionData.summary.rapidChangeCount}</span>
+                    </div>
                   </div>
                 )}
               </div>

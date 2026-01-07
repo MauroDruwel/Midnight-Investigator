@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facial Action Unit Analyzer</title>
+    <meta name="description" content="Browser-only facial movement detection using Action Units">
+
+    <style>
+        /* ============================================
+           CSS STYLES - Dark theme, full-screen display
+           ============================================ */
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        header p {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 1000px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Video container with canvas overlay */
+        .video-wrapper {
+            position: relative;
+            background: #0d0d1a;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            aspect-ratio: 4/3;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            pointer-events: none;
+        }
+
+        /* Status indicator */
+        .status-bar {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 8px 16px;
+            border-radius: 20px;
+            backdrop-filter: blur(8px);
+            font-size: 0.85rem;
+            z-index: 10;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4444;
+            animation: pulse 1.5s infinite;
+        }
+
+        .status-dot.active {
+            background: #00ff88;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Right Panel - scrollable */
+        .right-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: calc(100vh - 160px);
+            overflow-y: auto;
+        }
+
+        /* Panel styling */
+        .panel {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .panel h2 {
+            font-size: 1rem;
+            margin-bottom: 16px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel h2::before {
+            content: '';
+            width: 4px;
+            height: 18px;
+            background: linear-gradient(180deg, #00d4ff, #7c3aed);
+            border-radius: 2px;
+        }
+
+        /* Individual AU indicator */
+        .au-item {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .au-item.active {
+            background: rgba(0, 212, 255, 0.15);
+            border-color: rgba(0, 212, 255, 0.3);
+        }
+
+        .au-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 6px;
+        }
+
+        .au-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .au-description {
+            font-size: 0.75rem;
+            color: #00d4ff;
+            margin-top: 2px;
+            font-style: italic;
+        }
+
+        .au-status {
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #888;
+            white-space: nowrap;
+        }
+
+        .au-status.detected {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .au-bar-container {
+            height: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .au-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            border-radius: 3px;
+            transition: width 0.1s ease-out;
+            width: 0%;
+        }
+
+        /* Temporal info badge */
+        .temporal-badge {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 8px;
+            background: rgba(124, 58, 237, 0.3);
+            color: #c4a8ff;
+            margin-left: 6px;
+        }
+
+        /* Metrics Panel */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .metric-item {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .metric-label {
+            font-size: 0.7rem;
+            color: #888;
+            margin-top: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-sublabel {
+            font-size: 0.65rem;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        /* Baseline indicator */
+        .baseline-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+
+        .baseline-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .baseline-dot.recording {
+            background: #ff6b6b;
+            animation: pulse 1s infinite;
+        }
+
+        .baseline-dot.ready {
+            background: #00ff88;
+        }
+
+        .baseline-text {
+            font-size: 0.8rem;
+            flex: 1;
+        }
+
+        .baseline-btn {
+            font-size: 0.7rem;
+            padding: 4px 10px;
+            background: rgba(0, 212, 255, 0.3);
+            border: none;
+            border-radius: 8px;
+            color: #00d4ff;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .baseline-btn:hover {
+            background: rgba(0, 212, 255, 0.5);
+        }
+
+        /* Event Log */
+        .event-log {
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 0.75rem;
+        }
+
+        .event-item {
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            margin-bottom: 4px;
+            border-left: 3px solid #00d4ff;
+            display: flex;
+            gap: 8px;
+        }
+
+        .event-time {
+            color: #666;
+            flex-shrink: 0;
+        }
+
+        .event-msg {
+            color: #ccc;
+        }
+
+        .event-item.rapid {
+            border-left-color: #ff6b6b;
+        }
+
+        .event-item.deviation {
+            border-left-color: #ffc107;
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .control-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85rem;
+        }
+
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle.active {
+            background: rgba(0, 212, 255, 0.5);
+        }
+
+        .toggle::after {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: #fff;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: transform 0.3s;
+        }
+
+        .toggle.active::after {
+            transform: translateX(20px);
+        }
+
+        .start-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            margin-top: 12px;
+            background: linear-gradient(135deg, #00d4ff, #7c3aed);
+            border: none;
+            border-radius: 12px;
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 212, 255, 0.3);
+        }
+
+        .start-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Disclaimer */
+        .disclaimer {
+            padding: 14px;
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            border-radius: 12px;
+            font-size: 0.75rem;
+            color: #ffc107;
+            line-height: 1.5;
+        }
+
+        .disclaimer strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Facial Action Unit Analyzer</h1>
+            <p>Detecting facial muscle movements in real-time — all processing happens in your browser</p>
+        </header>
+
+        <main class="main-content">
+            <!-- Video feed with canvas overlay -->
+            <div class="video-wrapper">
+                <div class="status-bar">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Waiting to start...</span>
+                </div>
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="overlay"></canvas>
+            </div>
+
+            <!-- Right Panel -->
+            <div class="right-panel">
+                <!-- AU Detection Panel -->
+                <div class="panel">
+                    <h2>Facial Muscle Activation</h2>
+
+                    <!-- AU12 -->
+                    <div class="au-item" id="au12-item">
+                        <div class="au-header">
+                            <div>
+                                <div class="au-name">AU12 — Lip Corner Pull</div>
+                                <div class="au-description" id="au12-desc">Neutral position</div>
+                            </div>
+                            <span class="au-status" id="au12-status">—</span>
+                        </div>
+                        <div class="au-bar-container">
+                            <div class="au-bar" id="au12-bar"></div>
+                        </div>
+                    </div>
+
+                    <!-- AU26 -->
+                    <div class="au-item" id="au26-item">
+                        <div class="au-header">
+                            <div>
+                                <div class="au-name">AU26 — Jaw Drop</div>
+                                <div class="au-description" id="au26-desc">Mouth closed</div>
+                            </div>
+                            <span class="au-status" id="au26-status">—</span>
+                        </div>
+                        <div class="au-bar-container">
+                            <div class="au-bar" id="au26-bar"></div>
+                        </div>
+                    </div>
+
+                    <!-- AU1 -->
+                    <div class="au-item" id="au1-item">
+                        <div class="au-header">
+                            <div>
+                                <div class="au-name">AU1 — Inner Brow Raise</div>
+                                <div class="au-description" id="au1-desc">Neutral position</div>
+                            </div>
+                            <span class="au-status" id="au1-status">—</span>
+                        </div>
+                        <div class="au-bar-container">
+                            <div class="au-bar" id="au1-bar"></div>
+                        </div>
+                    </div>
+
+                    <!-- AU4 -->
+                    <div class="au-item" id="au4-item">
+                        <div class="au-header">
+                            <div>
+                                <div class="au-name">AU4 — Brow Lowerer</div>
+                                <div class="au-description" id="au4-desc">Neutral position</div>
+                            </div>
+                            <span class="au-status" id="au4-status">—</span>
+                        </div>
+                        <div class="au-bar-container">
+                            <div class="au-bar" id="au4-bar"></div>
+                        </div>
+                    </div>
+
+                    <!-- AU45 -->
+                    <div class="au-item" id="au45-item">
+                        <div class="au-header">
+                            <div>
+                                <div class="au-name">AU45 — Eye Closure</div>
+                                <div class="au-description" id="au45-desc">Eyes open</div>
+                            </div>
+                            <span class="au-status" id="au45-status">—</span>
+                        </div>
+                        <div class="au-bar-container">
+                            <div class="au-bar" id="au45-bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Temporal & Expressiveness Metrics -->
+                <div class="panel">
+                    <h2>Movement Patterns</h2>
+
+                    <!-- Baseline Indicator -->
+                    <div class="baseline-indicator">
+                        <div class="baseline-dot" id="baselineDot"></div>
+                        <span class="baseline-text" id="baselineText">No baseline recorded</span>
+                        <button class="baseline-btn" id="baselineBtn">Record</button>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <div class="metric-value" id="expressivenessValue">—</div>
+                            <div class="metric-label">Expressiveness</div>
+                            <div class="metric-sublabel">Movement variability</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="deviationValue">—</div>
+                            <div class="metric-label">Baseline Δ</div>
+                            <div class="metric-sublabel">From recorded baseline</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="activityValue">—</div>
+                            <div class="metric-label">Activity Level</div>
+                            <div class="metric-sublabel">Overall movement</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-value" id="stabilityValue">—</div>
+                            <div class="metric-label">Stability</div>
+                            <div class="metric-sublabel">Consistency over time</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Log -->
+                <div class="panel">
+                    <h2>Temporal Events</h2>
+                    <div class="event-log" id="eventLog">
+                        <div class="event-item">
+                            <span class="event-time">--:--</span>
+                            <span class="event-msg">Start camera to begin analysis...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div class="panel">
+                    <h2>Settings</h2>
+                    <div class="controls">
+                        <div class="control-row">
+                            <span>Show landmarks</span>
+                            <div class="toggle active" id="toggleLandmarks"></div>
+                        </div>
+                        <div class="control-row">
+                            <span>Smooth values</span>
+                            <div class="toggle active" id="toggleSmoothing"></div>
+                        </div>
+                        <div class="control-row">
+                            <span>Log events</span>
+                            <div class="toggle active" id="toggleLogging"></div>
+                        </div>
+                    </div>
+                    <button class="start-btn" id="startBtn">Start Camera</button>
+                </div>
+
+                <!-- Disclaimer -->
+                <div class="disclaimer">
+                    <strong>⚠️ Important Notice</strong>
+                    This tool detects facial muscle movements only. It does NOT infer emotions,
+                    intent, truthfulness, or any mental state. All values are probabilistic
+                    indicators based on geometric measurements.
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            All processing happens locally in your browser. No video is stored or transmitted.
+        </footer>
+    </div>
+
+    <!-- MediaPipe CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+    <script>
+        // ============================================
+        // FACIAL ACTION UNIT ANALYZER
+        // Enhanced with temporal analysis & baseline comparison
+        // ============================================
+
+        // -----------------------------------------
+        // DOM ELEMENTS
+        // -----------------------------------------
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('overlay');
+        const canvasCtx = canvasElement.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const toggleLandmarks = document.getElementById('toggleLandmarks');
+        const toggleSmoothing = document.getElementById('toggleSmoothing');
+        const toggleLogging = document.getElementById('toggleLogging');
+        const eventLog = document.getElementById('eventLog');
+        const baselineBtn = document.getElementById('baselineBtn');
+        const baselineDot = document.getElementById('baselineDot');
+        const baselineText = document.getElementById('baselineText');
+
+        // -----------------------------------------
+        // STATE VARIABLES
+        // -----------------------------------------
+        let isRunning = false;
+        let showLandmarks = true;
+        let useSmoothing = true;
+        let enableLogging = true;
+        let camera = null;
+        let frameCount = 0;
+        let lastFrameTime = 0;
+
+        // Smoothing (moving average)
+        const SMOOTHING_WINDOW = 5;
+        const auHistory = { AU12: [], AU26: [], AU1: [], AU4: [], AU45: [] };
+
+        // -----------------------------------------
+        // TEMPORAL ANALYSIS STATE
+        // -----------------------------------------
+        const TEMPORAL_WINDOW = 30; // ~1 second at 30fps
+        const ONSET_THRESHOLD = 0.15; // Change threshold for onset detection
+        const RAPID_ONSET_MS = 300; // Threshold for "rapid" change
+
+        // Per-AU temporal tracking
+        const temporalState = {};
+        const AU_KEYS = ['AU12', 'AU26', 'AU1', 'AU4', 'AU45'];
+        AU_KEYS.forEach(key => {
+            temporalState[key] = {
+                history: [],           // Recent values for variability
+                lastValue: 0,
+                lastChangeTime: 0,
+                onsetTime: null,       // When current activation started
+                isActive: false,
+                peakValue: 0
+            };
+        });
+
+        // -----------------------------------------
+        // BASELINE STATE
+        // -----------------------------------------
+        let baseline = null;
+        let baselineRecording = false;
+        let baselineFrames = [];
+        const BASELINE_DURATION = 60; // Frames to record (~2 seconds)
+
+        // -----------------------------------------
+        // EXPRESSIVENESS METRICS
+        // -----------------------------------------
+        let expressivenessHistory = [];
+        let activityHistory = [];
+
+        // -----------------------------------------
+        // UTILITY FUNCTIONS
+        // -----------------------------------------
+
+        function distance(a, b) {
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        }
+
+        function smoothValue(auKey, value) {
+            if (!useSmoothing) return value;
+            const history = auHistory[auKey];
+            history.push(value);
+            if (history.length > SMOOTHING_WINDOW) history.shift();
+            return history.reduce((a, b) => a + b, 0) / history.length;
+        }
+
+        function clamp01(value) {
+            return Math.max(0, Math.min(1, value));
+        }
+
+        function standardDeviation(arr) {
+            if (arr.length === 0) return 0;
+            const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+            const variance = arr.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / arr.length;
+            return Math.sqrt(variance);
+        }
+
+        function formatTime() {
+            const now = new Date();
+            return now.toTimeString().substring(0, 8);
+        }
+
+        // -----------------------------------------
+        // EVENT LOGGING
+        // -----------------------------------------
+
+        function logEvent(message, type = 'normal') {
+            if (!enableLogging) return;
+
+            const eventItem = document.createElement('div');
+            eventItem.className = `event-item ${type}`;
+            eventItem.innerHTML = `
+                <span class="event-time">${formatTime()}</span>
+                <span class="event-msg">${message}</span>
+            `;
+
+            eventLog.insertBefore(eventItem, eventLog.firstChild);
+
+            // Keep only last 50 events
+            while (eventLog.children.length > 50) {
+                eventLog.removeChild(eventLog.lastChild);
+            }
+        }
+
+        // -----------------------------------------
+        // LANDMARK INDICES
+        // -----------------------------------------
+
+        const LANDMARKS = {
+            leftMouthCorner: 61,
+            rightMouthCorner: 291,
+            upperLipTop: 13,
+            lowerLipBottom: 14,
+            chin: 152,
+            leftInnerBrow: 107,
+            rightInnerBrow: 336,
+            leftOuterBrow: 70,
+            rightOuterBrow: 300,
+            noseBridge: 168,
+            noseTop: 6,
+            leftEyeUpper: 159,
+            leftEyeLower: 145,
+            rightEyeUpper: 386,
+            rightEyeLower: 374,
+            leftEyeInner: 133,
+            leftEyeOuter: 33,
+            rightEyeInner: 362,
+            rightEyeOuter: 263,
+            leftCheek: 234,
+            rightCheek: 454,
+            forehead: 10,
+        };
+
+        // -----------------------------------------
+        // AU DETECTION
+        // -----------------------------------------
+
+        function computeActionUnits(landmarks) {
+            const faceWidth = distance(landmarks[LANDMARKS.leftCheek], landmarks[LANDMARKS.rightCheek]);
+
+            // AU12: Lip Corner Pull
+            const mouthWidth = distance(landmarks[LANDMARKS.leftMouthCorner], landmarks[LANDMARKS.rightMouthCorner]);
+            const mouthWidthRatio = mouthWidth / faceWidth;
+            const AU12_MIN = 0.35, AU12_MAX = 0.48;
+            const au12Raw = (mouthWidthRatio - AU12_MIN) / (AU12_MAX - AU12_MIN);
+            const AU12 = smoothValue('AU12', clamp01(au12Raw));
+
+            // AU26: Jaw Drop
+            const mouthOpen = distance(landmarks[LANDMARKS.upperLipTop], landmarks[LANDMARKS.lowerLipBottom]);
+            const mouthOpenRatio = mouthOpen / faceWidth;
+            const AU26_MIN = 0.02, AU26_MAX = 0.15;
+            const au26Raw = (mouthOpenRatio - AU26_MIN) / (AU26_MAX - AU26_MIN);
+            const AU26 = smoothValue('AU26', clamp01(au26Raw));
+
+            // AU1: Inner Brow Raise
+            const leftBrowHeight = distance(landmarks[LANDMARKS.leftInnerBrow], landmarks[LANDMARKS.noseBridge]);
+            const rightBrowHeight = distance(landmarks[LANDMARKS.rightInnerBrow], landmarks[LANDMARKS.noseBridge]);
+            const avgBrowHeight = (leftBrowHeight + rightBrowHeight) / 2;
+            const browHeightRatio = avgBrowHeight / faceWidth;
+            const AU1_MIN = 0.11, AU1_MAX = 0.17;
+            const au1Raw = (browHeightRatio - AU1_MIN) / (AU1_MAX - AU1_MIN);
+            const AU1 = smoothValue('AU1', clamp01(au1Raw));
+
+            // AU4: Brow Lowerer
+            const browDistance = distance(landmarks[LANDMARKS.leftInnerBrow], landmarks[LANDMARKS.rightInnerBrow]);
+            const browDistanceRatio = browDistance / faceWidth;
+            const AU4_MIN = 0.06, AU4_MAX = 0.13;
+            const au4Raw = 1 - ((browDistanceRatio - AU4_MIN) / (AU4_MAX - AU4_MIN));
+            const AU4 = smoothValue('AU4', clamp01(au4Raw));
+
+            // AU45: Blink
+            const leftEyeHeight = distance(landmarks[LANDMARKS.leftEyeUpper], landmarks[LANDMARKS.leftEyeLower]);
+            const leftEyeWidthDist = distance(landmarks[LANDMARKS.leftEyeInner], landmarks[LANDMARKS.leftEyeOuter]);
+            const leftEAR = leftEyeHeight / leftEyeWidthDist;
+            const rightEyeHeight = distance(landmarks[LANDMARKS.rightEyeUpper], landmarks[LANDMARKS.rightEyeLower]);
+            const rightEyeWidthDist = distance(landmarks[LANDMARKS.rightEyeInner], landmarks[LANDMARKS.rightEyeOuter]);
+            const rightEAR = rightEyeHeight / rightEyeWidthDist;
+            const avgEAR = (leftEAR + rightEAR) / 2;
+            const AU45_MIN = 0.1, AU45_MAX = 0.35;
+            const au45Raw = 1 - ((avgEAR - AU45_MIN) / (AU45_MAX - AU45_MIN));
+            const AU45 = smoothValue('AU45', clamp01(au45Raw));
+
+            return { AU12, AU26, AU1, AU4, AU45 };
+        }
+
+        // -----------------------------------------
+        // TEMPORAL ANALYSIS
+        // -----------------------------------------
+
+        function analyzeTemporalPatterns(aus) {
+            const now = performance.now();
+            const auDescriptions = {};
+            const events = [];
+
+            AU_KEYS.forEach(key => {
+                const state = temporalState[key];
+                const value = aus[key];
+                const threshold = getThreshold(key);
+                const isNowActive = value > threshold;
+                const wasActive = state.isActive;
+
+                // Track history for variability
+                state.history.push(value);
+                if (state.history.length > TEMPORAL_WINDOW) state.history.shift();
+
+                // Detect onset (activation start)
+                if (isNowActive && !wasActive) {
+                    state.onsetTime = now;
+                    state.peakValue = value;
+                    events.push({ key, type: 'onset', value });
+                }
+
+                // Track peak during activation
+                if (isNowActive && value > state.peakValue) {
+                    state.peakValue = value;
+                }
+
+                // Detect offset (activation end)
+                if (!isNowActive && wasActive && state.onsetTime) {
+                    const duration = now - state.onsetTime;
+                    events.push({ key, type: 'offset', duration, peak: state.peakValue });
+                    state.onsetTime = null;
+                }
+
+                // Detect rapid changes
+                const delta = Math.abs(value - state.lastValue);
+                if (delta > ONSET_THRESHOLD) {
+                    const timeSinceLastChange = now - state.lastChangeTime;
+                    if (timeSinceLastChange < RAPID_ONSET_MS && state.lastChangeTime > 0) {
+                        events.push({ key, type: 'rapid', delta, timeMs: timeSinceLastChange });
+                    }
+                    state.lastChangeTime = now;
+                }
+
+                // Generate descriptive text
+                auDescriptions[key] = generateAUDescription(key, value, isNowActive, state);
+
+                state.lastValue = value;
+                state.isActive = isNowActive;
+            });
+
+            // Log significant events
+            events.forEach(evt => {
+                if (evt.type === 'onset') {
+                    logEvent(`${getAUName(evt.key)} activated`, 'normal');
+                } else if (evt.type === 'offset') {
+                    const durStr = evt.duration > 1000
+                        ? `${(evt.duration / 1000).toFixed(1)}s`
+                        : `${Math.round(evt.duration)}ms`;
+                    logEvent(`${getAUName(evt.key)} deactivated (duration: ${durStr})`, 'normal');
+                } else if (evt.type === 'rapid') {
+                    logEvent(`Rapid ${getAUName(evt.key)} change over ${Math.round(evt.timeMs)}ms`, 'rapid');
+                }
+            });
+
+            return auDescriptions;
+        }
+
+        function getThreshold(key) {
+            const thresholds = { AU12: 0.35, AU26: 0.25, AU1: 0.4, AU4: 0.45, AU45: 0.6 };
+            return thresholds[key] || 0.5;
+        }
+
+        function getAUName(key) {
+            const names = {
+                AU12: 'Lip corner pull',
+                AU26: 'Jaw drop',
+                AU1: 'Inner brow raise',
+                AU4: 'Brow lowerer',
+                AU45: 'Eye closure'
+            };
+            return names[key] || key;
+        }
+
+        function generateAUDescription(key, value, isActive, state) {
+            const intensity = value > 0.7 ? 'strongly' : value > 0.4 ? 'moderately' : 'slightly';
+
+            if (key === 'AU12') {
+                if (!isActive) return 'Neutral position';
+                return `Lip corners pulled upward (${intensity})`;
+            }
+            if (key === 'AU26') {
+                if (!isActive) return 'Mouth closed';
+                return `Jaw drop / mouth opening (${intensity})`;
+            }
+            if (key === 'AU1') {
+                if (!isActive) return 'Neutral position';
+                return `Inner brows raised (${intensity})`;
+            }
+            if (key === 'AU4') {
+                if (!isActive) return 'Neutral position';
+                return `Brows drawn together (${intensity})`;
+            }
+            if (key === 'AU45') {
+                if (value > 0.8) return 'Eyelids closed (blink detected)';
+                if (!isActive) return 'Eyes open';
+                return `Eyes partially closed`;
+            }
+            return '';
+        }
+
+        // -----------------------------------------
+        // EXPRESSIVENESS & METRICS
+        // -----------------------------------------
+
+        function computeMetrics(aus) {
+            // Expressiveness: variability of AU values
+            const allVariability = AU_KEYS.map(key => {
+                const state = temporalState[key];
+                return standardDeviation(state.history);
+            });
+            const expressiveness = allVariability.reduce((a, b) => a + b, 0) / AU_KEYS.length;
+
+            expressivenessHistory.push(expressiveness);
+            if (expressivenessHistory.length > 30) expressivenessHistory.shift();
+
+            // Activity level: mean of all AU activations
+            const activity = AU_KEYS.reduce((sum, key) => sum + aus[key], 0) / AU_KEYS.length;
+            activityHistory.push(activity);
+            if (activityHistory.length > 30) activityHistory.shift();
+
+            // Stability: inverse of recent variability in expressiveness
+            const stabilityRaw = 1 - standardDeviation(expressivenessHistory.slice(-15));
+            const stability = clamp01(stabilityRaw * 2); // Scale up for display
+
+            // Baseline deviation
+            let deviation = null;
+            if (baseline) {
+                const deviations = AU_KEYS.map(key => Math.abs(aus[key] - baseline[key]));
+                deviation = deviations.reduce((a, b) => a + b, 0) / AU_KEYS.length;
+
+                // Log significant deviations
+                if (deviation > 0.25 && frameCount % 30 === 0) {
+                    logEvent(`Facial movement deviates from baseline (Δ ${(deviation * 100).toFixed(0)}%)`, 'deviation');
+                }
+            }
+
+            return {
+                expressiveness: clamp01(expressiveness * 5), // Scale for display
+                activity: clamp01(activity),
+                stability,
+                deviation
+            };
+        }
+
+        // -----------------------------------------
+        // BASELINE RECORDING
+        // -----------------------------------------
+
+        function startBaselineRecording() {
+            baselineRecording = true;
+            baselineFrames = [];
+            baselineDot.className = 'baseline-dot recording';
+            baselineText.textContent = 'Recording baseline...';
+            baselineBtn.textContent = 'Cancel';
+            logEvent('Baseline recording started - hold neutral expression', 'normal');
+        }
+
+        function cancelBaselineRecording() {
+            baselineRecording = false;
+            baselineFrames = [];
+            baselineDot.className = baseline ? 'baseline-dot ready' : 'baseline-dot';
+            baselineText.textContent = baseline ? 'Baseline recorded' : 'No baseline recorded';
+            baselineBtn.textContent = 'Record';
+        }
+
+        function recordBaselineFrame(aus) {
+            baselineFrames.push({ ...aus });
+            baselineText.textContent = `Recording... ${Math.round((baselineFrames.length / BASELINE_DURATION) * 100)}%`;
+
+            if (baselineFrames.length >= BASELINE_DURATION) {
+                // Compute average baseline
+                baseline = {};
+                AU_KEYS.forEach(key => {
+                    baseline[key] = baselineFrames.reduce((sum, f) => sum + f[key], 0) / baselineFrames.length;
+                });
+
+                baselineRecording = false;
+                baselineFrames = [];
+                baselineDot.className = 'baseline-dot ready';
+                baselineText.textContent = 'Baseline recorded';
+                baselineBtn.textContent = 'Reset';
+                logEvent('Baseline recorded successfully', 'normal');
+            }
+        }
+
+        baselineBtn.addEventListener('click', () => {
+            if (baselineRecording) {
+                cancelBaselineRecording();
+            } else if (baseline) {
+                baseline = null;
+                baselineDot.className = 'baseline-dot';
+                baselineText.textContent = 'No baseline recorded';
+                baselineBtn.textContent = 'Record';
+                logEvent('Baseline reset', 'normal');
+            } else if (isRunning) {
+                startBaselineRecording();
+            }
+        });
+
+        // -----------------------------------------
+        // UI UPDATE
+        // -----------------------------------------
+
+        function updateUI(aus, descriptions, metrics) {
+            const auConfigs = [
+                { key: 'AU12', threshold: 0.35 },
+                { key: 'AU26', threshold: 0.25 },
+                { key: 'AU1', threshold: 0.4 },
+                { key: 'AU4', threshold: 0.45 },
+                { key: 'AU45', threshold: 0.6 }
+            ];
+
+            auConfigs.forEach(({ key, threshold }) => {
+                const lowerKey = key.toLowerCase();
+                const item = document.getElementById(`${lowerKey}-item`);
+                const status = document.getElementById(`${lowerKey}-status`);
+                const bar = document.getElementById(`${lowerKey}-bar`);
+                const desc = document.getElementById(`${lowerKey}-desc`);
+
+                const value = aus[key];
+                const isActive = value > threshold;
+
+                item.classList.toggle('active', isActive);
+                status.textContent = isActive ? 'Active' : 'Neutral';
+                status.classList.toggle('detected', isActive);
+                bar.style.width = `${value * 100}%`;
+                desc.textContent = descriptions[key];
+            });
+
+            // Update metrics
+            document.getElementById('expressivenessValue').textContent =
+                metrics.expressiveness > 0.01 ? (metrics.expressiveness * 100).toFixed(0) + '%' : 'Low';
+            document.getElementById('activityValue').textContent =
+                (metrics.activity * 100).toFixed(0) + '%';
+            document.getElementById('stabilityValue').textContent =
+                (metrics.stability * 100).toFixed(0) + '%';
+            document.getElementById('deviationValue').textContent =
+                metrics.deviation !== null ? (metrics.deviation * 100).toFixed(0) + '%' : '—';
+        }
+
+        // -----------------------------------------
+        // LANDMARK DRAWING
+        // -----------------------------------------
+
+        function drawLandmarks(landmarks, width, height) {
+            canvasCtx.clearRect(0, 0, width, height);
+            if (!showLandmarks || !landmarks) return;
+
+            canvasCtx.fillStyle = 'rgba(0, 212, 255, 0.5)';
+            landmarks.forEach((landmark) => {
+                const x = landmark.x * width;
+                const y = landmark.y * height;
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 1.5, 0, 2 * Math.PI);
+                canvasCtx.fill();
+            });
+
+            // Highlight key points
+            const keyPoints = [
+                LANDMARKS.leftMouthCorner, LANDMARKS.rightMouthCorner,
+                LANDMARKS.upperLipTop, LANDMARKS.lowerLipBottom,
+                LANDMARKS.leftInnerBrow, LANDMARKS.rightInnerBrow,
+                LANDMARKS.leftEyeUpper, LANDMARKS.leftEyeLower,
+                LANDMARKS.rightEyeUpper, LANDMARKS.rightEyeLower,
+            ];
+
+            canvasCtx.fillStyle = 'rgba(124, 58, 237, 0.9)';
+            keyPoints.forEach(index => {
+                const landmark = landmarks[index];
+                const x = landmark.x * width;
+                const y = landmark.y * height;
+                canvasCtx.beginPath();
+                canvasCtx.arc(x, y, 4, 0, 2 * Math.PI);
+                canvasCtx.fill();
+            });
+        }
+
+        // -----------------------------------------
+        // MEDIAPIPE SETUP
+        // -----------------------------------------
+
+        function onResults(results) {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            frameCount++;
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+
+                // Compute AUs
+                const aus = computeActionUnits(landmarks);
+
+                // Temporal analysis
+                const descriptions = analyzeTemporalPatterns(aus);
+
+                // Compute metrics
+                const metrics = computeMetrics(aus);
+
+                // Baseline recording
+                if (baselineRecording) {
+                    recordBaselineFrame(aus);
+                }
+
+                // Update UI
+                updateUI(aus, descriptions, metrics);
+                drawLandmarks(landmarks, canvasElement.width, canvasElement.height);
+
+                statusDot.classList.add('active');
+                statusText.textContent = 'Face detected';
+            } else {
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+                statusDot.classList.remove('active');
+                statusText.textContent = 'No face detected';
+            }
+        }
+
+        const faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        // -----------------------------------------
+        // CAMERA
+        // -----------------------------------------
+
+        async function startCamera() {
+            try {
+                statusText.textContent = 'Starting camera...';
+                startBtn.disabled = true;
+                startBtn.textContent = 'Starting...';
+
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+                });
+
+                videoElement.srcObject = stream;
+                await new Promise(resolve => { videoElement.onloadedmetadata = resolve; });
+
+                camera = new Camera(videoElement, {
+                    onFrame: async () => { await faceMesh.send({ image: videoElement }); },
+                    width: 1280,
+                    height: 720
+                });
+
+                await camera.start();
+
+                isRunning = true;
+                frameCount = 0;
+                statusDot.classList.add('active');
+                statusText.textContent = 'Processing...';
+                startBtn.textContent = 'Stop Camera';
+                startBtn.disabled = false;
+
+                logEvent('Camera started', 'normal');
+
+            } catch (error) {
+                console.error('Camera error:', error);
+                statusText.textContent = 'Camera access denied';
+                startBtn.textContent = 'Retry';
+                startBtn.disabled = false;
+                alert('Unable to access camera. Please grant camera permissions.');
+            }
+        }
+
+        function stopCamera() {
+            if (camera) camera.stop();
+            if (videoElement.srcObject) {
+                videoElement.srcObject.getTracks().forEach(track => track.stop());
+                videoElement.srcObject = null;
+            }
+
+            isRunning = false;
+            statusDot.classList.remove('active');
+            statusText.textContent = 'Camera stopped';
+            startBtn.textContent = 'Start Camera';
+
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            // Reset state
+            Object.keys(auHistory).forEach(key => { auHistory[key] = []; });
+            AU_KEYS.forEach(key => {
+                temporalState[key].history = [];
+                temporalState[key].lastValue = 0;
+                temporalState[key].isActive = false;
+            });
+            expressivenessHistory = [];
+            activityHistory = [];
+            cancelBaselineRecording();
+
+            logEvent('Camera stopped', 'normal');
+        }
+
+        // -----------------------------------------
+        // EVENT LISTENERS
+        // -----------------------------------------
+
+        startBtn.addEventListener('click', () => {
+            if (isRunning) stopCamera();
+            else startCamera();
+        });
+
+        toggleLandmarks.addEventListener('click', () => {
+            showLandmarks = !showLandmarks;
+            toggleLandmarks.classList.toggle('active', showLandmarks);
+        });
+
+        toggleSmoothing.addEventListener('click', () => {
+            useSmoothing = !useSmoothing;
+            toggleSmoothing.classList.toggle('active', useSmoothing);
+            if (!useSmoothing) {
+                Object.keys(auHistory).forEach(key => { auHistory[key] = []; });
+            }
+        });
+
+        toggleLogging.addEventListener('click', () => {
+            enableLogging = !enableLogging;
+            toggleLogging.classList.toggle('active', enableLogging);
+        });
+
+        window.addEventListener('beforeunload', () => { stopCamera(); });
+
+        console.log('Facial Action Unit Analyzer initialized');
+        console.log('This tool detects facial muscle movements only.');
+        console.log('No video data is stored or transmitted.');
+    </script>
+</body>
+
+</html>
