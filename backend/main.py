@@ -7,6 +7,84 @@ from backend.utils.analyze import analyze_guilt, analyze_summary
 from fastapi import Request
 import os
 import re
+import httpx
+from typing import Optional
+
+
+
+HACKCLUB_PROXY_URL = "https://ai.hackclub.com/proxy/v1/chat/completions"
+HACKCLUB_API_KEY = os.getenv("HACKCLUB_AI_KEY")  # put this in your .env / env vars
+
+@app.post("/video-feedback")
+async def video_feedback(
+    file: UploadFile = File(...),
+    goal: str = Form("Give camera/communication feedback for an interview. Avoid judging guilt.")
+):
+    """
+    SAFER alternative to 'sus detection':
+    - Analyze the frame for lighting, framing, face visibility, gaze direction, distractions.
+    - Return coaching tips, NOT guilt/lie claims.
+    """
+    if not HACKCLUB_API_KEY:
+        raise HTTPException(status_code=500, detail="Missing HACKCLUB_AI_KEY env var")
+
+    # Read image bytes
+    img_bytes = await file.read()
+    if not img_bytes:
+        raise HTTPException(status_code=400, detail="Empty image upload")
+
+    # Convert to data URL (base64) so we can send inline
+    import base64
+    b64 = base64.b64encode(img_bytes).decode("utf-8")
+    data_url = f"data:{file.content_type or 'image/jpeg'};base64,{b64}"
+
+    # Pick a vision-capable model from your list:
+    # - qwen/qwen3-vl-235b-a22b-instruct
+    # - nvidia/nemotron-nano-12b-v2-vl
+    # - openai/gpt-5-mini (if vision enabled via proxy)
+    model_id = "qwen/qwen3-vl-235b-a22b-instruct"
+
+    system_msg = (
+        "You are a real-time interview coach. "
+        "Only comment on observable factors (lighting, framing, gaze, distractions, posture). "
+        "DO NOT infer guilt, deception, intent, personality, or mental state. "
+        "Return 3-6 short bullet tips and a single 'quality_score' 1-10 for video clarity."
+    )
+
+    user_content = [
+        {"type": "text", "text": f"Goal: {goal}\nGive tips based on this single frame."},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.2,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                HACKCLUB_PROXY_URL,
+                headers={
+                    "Authorization": f"Bearer {HACKCLUB_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        # OpenAI-style response: choices[0].message.content
+        text = data["choices"][0]["message"]["content"]
+        return {"feedback": text}
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Upstream AI request failed: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Video feedback failed: {e}")
 
 
 def _normalize_summary_result(summary_result):

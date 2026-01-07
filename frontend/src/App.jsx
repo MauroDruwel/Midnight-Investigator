@@ -1,41 +1,51 @@
-import { useEffect, useState } from 'react';
-import './App.css';
+import { useEffect, useState } from "react";
+import "./App.css";
+import VideoFeedback from "./VideoFeedback";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 async function fetchInterviews() {
   const res = await fetch(`${API_BASE}/interviews`);
-  if (!res.ok) throw new Error('Failed to load interviews');
-  return res.json();
-}
-
-async function addInterview(payload) {
-  const res = await fetch(`${API_BASE}/interview`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error('Failed to add interview');
+  if (!res.ok) throw new Error("Failed to load interviews");
   return res.json();
 }
 
 export default function App() {
   const [interviews, setInterviews] = useState([]);
-  const [form, setForm] = useState({ name: '', mp3_path: '', guilt_level: 0 });
+  const [name, setName] = useState("");
+  const [file, setFile] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetchInterviews().then(setInterviews).catch((err) => setError(err.message));
+    fetchInterviews()
+      .then(setInterviews)
+      .catch((err) => setError(err.message));
   }, []);
 
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
+
+    if (!name || !file) {
+      setError("Name and audio file required");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("name", name);
+    formData.append("file", file);
+
     try {
-      await addInterview(form);
-      const next = await fetchInterviews();
-      setInterviews(next);
-      setForm({ name: '', mp3_path: '', guilt_level: 0 });
+      const res = await fetch(`${API_BASE}/interview`, {
+        method: "POST",
+        body: formData, // ✅ FormData, not JSON
+      });
+
+      if (!res.ok) throw new Error("Upload failed");
+
+      await fetchInterviews().then(setInterviews);
+      setName("");
+      setFile(null);
     } catch (err) {
       setError(err.message);
     }
@@ -43,12 +53,18 @@ export default function App() {
 
   return (
     <div className="App">
-      <h1>Interviews</h1>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      <h1>Interview App</h1>
+
+      {/* 🎥 LIVE CAMERA FEEDBACK */}
+      <VideoFeedback />
+
+      {error && <p style={{ color: "red" }}>{error}</p>}
+
+      <h2>Interviews</h2>
       <ul>
         {interviews.map((iv, idx) => (
           <li key={idx}>
-            <strong>{iv.name || 'Unnamed'}</strong> — guilt level {iv.guilt_level} — {iv.mp3_path}
+            <strong>{iv.name}</strong> — guilt level {iv.guilt_level}
           </li>
         ))}
       </ul>
@@ -56,22 +72,18 @@ export default function App() {
       <h2>Add Interview</h2>
       <form onSubmit={submit}>
         <input
-          placeholder="Name"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          placeholder="Suspect name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
         />
+
         <input
-          placeholder="MP3 path"
-          value={form.mp3_path}
-          onChange={(e) => setForm({ ...form, mp3_path: e.target.value })}
+          type="file"
+          accept="audio/*"
+          onChange={(e) => setFile(e.target.files[0])}
         />
-        <input
-          type="number"
-          placeholder="Guilt level"
-          value={form.guilt_level}
-          onChange={(e) => setForm({ ...form, guilt_level: Number(e.target.value) })}
-        />
-        <button type="submit">Save</button>
+
+        <button type="submit">Upload Interview</button>
       </form>
     </div>
   );
