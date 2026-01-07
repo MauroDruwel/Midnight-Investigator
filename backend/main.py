@@ -8,8 +8,8 @@ import base64
 import logging
 import traceback
 
-# Basic logging to stdout for easier debugging in dev
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# Basic logging to stdout for easier debugging in dev (use DEBUG to show tracebacks)
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 from backend.utils.interview_files import load_interviews, save_interviews
@@ -21,6 +21,34 @@ from backend.utils.analyze import analyze_guilt, analyze_summary
 # =====================================================
 
 app = FastAPI()
+
+
+@app.on_event("startup")
+def log_routes_on_startup():
+    logger.info("Registered routes:")
+    try:
+        for route in app.router.routes:
+            methods = getattr(route, "methods", None)
+            path = getattr(route, "path", None) or getattr(route, "name", str(route))
+            logger.info("  %s %s", ",".join(methods) if methods else "--", path)
+    except Exception:
+        logger.debug("Failed to list routes: %s", traceback.format_exc())
+
+
+
+# Middleware to log every incoming request (helps diagnose 404s/CORS)
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    try:
+        logger.info("incoming request: %s %s", request.method, request.url.path)
+        # Log Origin header if present to help CORS debugging
+        origin = request.headers.get("origin")
+        if origin:
+            logger.info("  Origin: %s", origin)
+    except Exception:
+        logger.debug("Failed to log incoming request: %s", traceback.format_exc())
+    response = await call_next(request)
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -200,7 +228,15 @@ async def reset_interviews():
 # =====================================================
 
 @app.post("/analyze")
-async def analyze_guilt_endpoint(name: str = Form(...)):
+async def analyze_guilt_endpoint(request: Request, name: str = Form(None)):
+    # Support both form-encoded and JSON payloads from the frontend.
+    if not name:
+        try:
+            body = await request.json()
+            name = body.get("name")
+        except Exception:
+            pass
+
     interviews = load_interviews()
     interview = next((iv for iv in interviews if iv.get("name") == name), None)
 
@@ -238,3 +274,43 @@ async def summary_endpoint():
     result = analyze_summary(prompt)
     logger.info("summary_endpoint: summary computed")
     return {"summary": result}
+
+
+
+@app.post("/analyze/")
+async def analyze_guilt_endpoint_slash(request: Request, name: str = Form(None)):
+    """Alias for /analyze to accept trailing-slash POSTs from clients."""
+    # Support both form-encoded and JSON payloads from the frontend.
+    if not name:
+        try:
+            body = await request.json()
+            name = body.get("name")
+        except Exception:
+            pass
+
+    interviews = load_interviews()
+    interview = next((iv for iv in interviews if iv.get("name") == name), None)
+
+    if not interview or not interview.get("transcript"):
+        logger.error("analyze_guilt_slash: transcript not found for %s", name)
+        raise HTTPException(status_code=404, detail="Transcript not found")
+
+    try:
+        guilt_level = analyze_guilt(interview["transcript"])
+    except Exception as e:
+        logger.error("analyze_guilt_slash: analyze_guilt failed for %s: %s", name, e)
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+    interview["guilt_level"] = guilt_level
+    save_interviews(interviews)
+
+    logger.info("analyze_guilt_slash: computed guilt=%s for %s", guilt_level, name)
+    return {"name": name, "guilt_level": guilt_level}
+
+
+
+@app.get("/ping")
+def ping():
+    """Simple health check endpoint."""
+    return {"status": "ok"}
