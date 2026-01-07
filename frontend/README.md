@@ -1,51 +1,73 @@
+# React + TypeScript + Vite
 
-# Murder At Midnight Frontend
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-This is the frontend for the Murder At Midnight project, built with React and Vite.
+Currently, two official plugins are available:
 
-## Features
-- Pixel art font styling using 'Press Start 2P'
-- Tailwind CSS for utility-first styling
-- React Router for navigation
-- Sound effects support (add your own .wav files to `public/sounds/`)
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Getting Started
+## React Compiler
 
-### Prerequisites
-- Node.js (v18 or newer recommended)
-- npm
+The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
 
-### Install dependencies
+## Expanding the ESLint configuration
 
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
+
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-npm install
+
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
 ```
-
-### Run the development server
-
-```
-npm run dev
-```
-
-### Build for production
-
-```
-npm run build
-```
-
-## Tailwind CSS Setup
-- Tailwind is configured via `tailwind.config.js` and `postcss.config.js`.
-- If you see errors about `@tailwind` rules, ensure you have `tailwindcss`, `postcss`, and `autoprefixer` installed.
-
-## Customization
-- To change the font, edit `src/index.css` and use a different Google Fonts import.
-- To add sound effects, place `.wav` or `.mp3` files in `public/sounds/` and use the `playSound` utility in your components.
-
-## Project Structure
-- `src/` — React components and pages
-- `public/` — Static assets
-- `tailwind.config.js` — Tailwind configuration
-- `postcss.config.js` — PostCSS configuration
-
-## License
-See LICENSE in the root directory.
