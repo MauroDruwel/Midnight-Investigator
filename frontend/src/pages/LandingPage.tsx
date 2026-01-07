@@ -23,8 +23,16 @@ export default function LandingPage() {
       .catch(error => console.error('Error fetching interviews:', error));
   }, []);
 
-  const buttonText = hasInterviews ? "Go to dashboard" : "Take interview";
-  const nextPath = hasInterviews ? "/dashboard" : "/interview";
+  const buttonText = hasInterviews ? "Go to dashboard" : "Add interview";
+
+  const handleButtonClick = () => {
+    if (hasInterviews) {
+      navigate("/dashboard");
+      return;
+    }
+
+    navigate("/dashboard", { state: { openAddModal: true } });
+  };
 
   return (
     <div className="fixed inset-0 flex flex-col items-center justify-center bg-black/[0.96] antialiased overflow-hidden">
@@ -53,7 +61,7 @@ export default function LandingPage() {
             containerClassName="rounded-full group"
             as="button"
             className="bg-black text-white flex items-center relative overflow-hidden"
-            onClick={() => navigate(nextPath)}
+            onClick={handleButtonClick}
           >
             <div className="flex items-center group-hover:translate-x-40 transition duration-500 z-10">
               <img src={CamIcon} alt="cam" className="w-3 h-3 mr-2" />

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { FloatingDock } from "@/components/ui/floating-dock";
 import { CometCard } from "@/components/ui/comet-card";
@@ -55,6 +56,8 @@ const OFFLINE_INTERVIEWS: Interview[] = [
 ];
 
 export default function DashboardPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -125,6 +128,14 @@ export default function DashboardPage() {
     fetchInterviews(controller.signal);
     return () => controller.abort();
   }, [fetchInterviews]);
+
+  useEffect(() => {
+    const openAddModal = (location.state as { openAddModal?: boolean } | null)?.openAddModal;
+    if (!openAddModal) return;
+
+    setShowAddModal(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location, navigate]);
 
   const fetchStorySummary = useCallback(async () => {
     setStoryLoading(true);
