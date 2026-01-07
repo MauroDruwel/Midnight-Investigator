@@ -3,12 +3,19 @@ import requests
 import json
 from dotenv import load_dotenv
 load_dotenv()
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
 
 
-# Retrieve environment variables once
-API_KEY = os.getenv("HACKCLUB_API_KEY")
-SERVER_URL = os.getenv("HACKCLUB_SERVER_URL", "")
-MODEL = "openai/gpt-5.1"
+# Retrieve environment variables once. Fall back to Hack Club proxy defaults
+# used elsewhere in the app if explicit vars are not present.
+API_KEY = os.getenv("HACKCLUB_API_KEY") or os.getenv("HACKCLUB_AI_KEY")
+SERVER_URL = os.getenv(
+    "HACKCLUB_SERVER_URL", "https://ai.hackclub.com/proxy/v1/chat/completions"
+)
+MODEL = os.getenv("HACKCLUB_MODEL", "openai/gpt-5.1")
 
 # Centralized prompts for easy editing
 PROMPT_GUILT_SYSTEM = (
@@ -25,6 +32,7 @@ PROMPT_SUMMARY_SYSTEM = (
 
 
 def analyze_guilt(transcript):
+    logger.info("analyze_guilt: starting analysis request; server=%s model=%s", SERVER_URL, MODEL)
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": MODEL,
@@ -33,9 +41,31 @@ def analyze_guilt(transcript):
             {"role": "user", "content": transcript}
         ]
     }
-    response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=30)
-    response.raise_for_status()
-    result = response.json()
+    try:
+        response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=30)
+    except Exception as e:
+        logger.error("analyze_guilt: request failed: %s", e)
+        logger.debug(traceback.format_exc())
+        raise RuntimeError(f"Failed to reach analysis server at {SERVER_URL}: {e}") from e
+
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        # surface server response for easier debugging
+        body = None
+        try:
+            body = response.text
+        except Exception:
+            body = "<unable to read response body>"
+        logger.error("analyze_guilt: server returned HTTP %s: %s", response.status_code, body)
+        logger.debug(traceback.format_exc())
+        raise RuntimeError(f"Analysis server returned HTTP {response.status_code}: {body}") from e
+
+    try:
+        result = response.json()
+    except Exception:
+        logger.error("analyze_guilt: non-JSON response: %s", response.text)
+        raise RuntimeError(f"Analysis server returned non-JSON response: {response.text}")
     guilt_level = None
     if "choices" in result and result["choices"]:
         content = result["choices"][0].get("message", {}).get("content", "")
@@ -43,11 +73,14 @@ def analyze_guilt(transcript):
             guilt_level = int(content.strip())
         except Exception:
             guilt_level = content.strip()
+            logger.info("analyze_guilt: non-integer content returned: %s", guilt_level)
     else:
         guilt_level = result
+    logger.info("analyze_guilt: result=%s", guilt_level)
     return guilt_level
 
 def analyze_summary(summary_prompt):
+    logger.info("analyze_summary: starting analysis request; server=%s model=%s", SERVER_URL, MODEL)
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": MODEL,
@@ -56,9 +89,30 @@ def analyze_summary(summary_prompt):
             {"role": "user", "content": summary_prompt}
         ]
     }
-    response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=60)
-    response.raise_for_status()
-    result = response.json()
+    try:
+        response = requests.post(SERVER_URL, headers=headers, json=payload, timeout=60)
+    except Exception as e:
+        logger.error("analyze_summary: request failed: %s", e)
+        logger.debug(traceback.format_exc())
+        raise RuntimeError(f"Failed to reach analysis server at {SERVER_URL}: {e}") from e
+
+    try:
+        response.raise_for_status()
+    except Exception as e:
+        body = None
+        try:
+            body = response.text
+        except Exception:
+            body = "<unable to read response body>"
+        logger.error("analyze_summary: server returned HTTP %s: %s", response.status_code, body)
+        logger.debug(traceback.format_exc())
+        raise RuntimeError(f"Analysis server returned HTTP {response.status_code}: {body}") from e
+
+    try:
+        result = response.json()
+    except Exception:
+        logger.error("analyze_summary: non-JSON response: %s", response.text)
+        raise RuntimeError(f"Analysis server returned non-JSON response: {response.text}")
     summary = None
     if "choices" in result and result["choices"]:
         content = result["choices"][0].get("message", {}).get("content", "")
@@ -68,4 +122,5 @@ def analyze_summary(summary_prompt):
             summary = content.strip()
     else:
         summary = result
+    logger.info("analyze_summary: result type=%s", type(summary))
     return summary

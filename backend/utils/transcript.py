@@ -1,6 +1,10 @@
 import os
 import re
+import logging
+import traceback
+
 _model = None
+logger = logging.getLogger(__name__)
 
 
 def _load_model():
@@ -23,6 +27,8 @@ def _load_model():
     try:
         _model = whisper.load_model(model_name)
     except Exception as e:
+        logger.error("_load_model: failed to load model %s: %s", model_name, e)
+        logger.debug(traceback.format_exc())
         raise RuntimeError(f"Failed to load whisper model '{model_name}': {e}") from e
 
     return _model
@@ -43,6 +49,17 @@ def generate_transcript(file_path: str) -> str:
     """
     Transcribe an audio file using Whisper (local, free).
     """
-    model = _load_model()
-    result = model.transcribe(file_path)
+    try:
+        model = _load_model()
+    except Exception as e:
+        logger.error("generate_transcript: model load failed: %s", e)
+        raise
+
+    try:
+        result = model.transcribe(file_path)
+    except Exception as e:
+        logger.error("generate_transcript: transcription failed for %s: %s", file_path, e)
+        logger.debug(traceback.format_exc())
+        raise
+
     return result.get("text", "")

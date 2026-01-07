@@ -1,10 +1,16 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import os
 import re
 import httpx
 import base64
+import logging
+import traceback
+
+# Basic logging to stdout for easier debugging in dev
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 from backend.utils.interview_files import load_interviews, save_interviews
 from backend.utils.transcript import save_audio_file, generate_transcript
@@ -49,6 +55,7 @@ async def video_feedback(
     ),
 ):
     if not HACKCLUB_API_KEY:
+        logger.error("video_feedback: Missing HACKCLUB_AI_KEY")
         raise HTTPException(status_code=500, detail="Missing HACKCLUB_AI_KEY")
 
     img_bytes = await file.read()
@@ -94,8 +101,11 @@ async def video_feedback(
             r.raise_for_status()
             data = r.json()
 
+        logger.info("video_feedback: received response from model proxy")
         return {"feedback": data["choices"][0]["message"]["content"]}
     except Exception as e:
+        logger.error("video_feedback: exception: %s", e)
+        logger.debug(traceback.format_exc())
         raise HTTPException(status_code=502, detail=str(e))
 
 # =====================================================
@@ -115,8 +125,10 @@ async def add_interview(
     name: str = Form(...),
     file: UploadFile = File(...),
 ):
+    logger.info("add_interview: start for name=%s filename=%s", name, getattr(file, 'filename', None))
     content = await file.read()
     if not content:
+        logger.error("add_interview: empty upload for %s", name)
         raise HTTPException(status_code=400, detail="Empty audio file")
 
     file_path, safe_filename = save_audio_file(name, content)
@@ -124,6 +136,8 @@ async def add_interview(
     try:
         transcript_text = generate_transcript(file_path)
     except Exception as e:
+        logger.error("add_interview: transcription failed for %s: %s", name, e)
+        logger.debug(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
 
     interviews = load_interviews()
@@ -142,6 +156,7 @@ async def add_interview(
     )
 
     save_interviews(interviews)
+    logger.info("add_interview: saved interview %s", name)
 
     return {
         "message": "Interview added",
@@ -164,6 +179,7 @@ async def delete_interview(name: str):
     interviews = [iv for iv in interviews if iv.get("name") != name]
     save_interviews(interviews)
 
+    logger.info("delete_interview: deleted %s", name)
     return {"message": f"Interview '{name}' deleted"}
 
 
@@ -176,6 +192,7 @@ async def reset_interviews():
             os.remove(iv["mp3_path"])
 
     save_interviews([])
+    logger.info("reset_interviews: removed all interviews")
     return {"message": "All interviews deleted"}
 
 # =====================================================
@@ -188,12 +205,20 @@ async def analyze_guilt_endpoint(name: str = Form(...)):
     interview = next((iv for iv in interviews if iv.get("name") == name), None)
 
     if not interview or not interview.get("transcript"):
+        logger.error("analyze_guilt: transcript not found for %s", name)
         raise HTTPException(status_code=404, detail="Transcript not found")
 
-    guilt_level = analyze_guilt(interview["transcript"])
+    try:
+        guilt_level = analyze_guilt(interview["transcript"])
+    except Exception as e:
+        logger.error("analyze_guilt: analyze_guilt failed for %s: %s", name, e)
+        logger.debug(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
     interview["guilt_level"] = guilt_level
     save_interviews(interviews)
 
+    logger.info("analyze_guilt: computed guilt=%s for %s", guilt_level, name)
     return {"name": name, "guilt_level": guilt_level}
 
 
@@ -203,6 +228,7 @@ async def summary_endpoint():
     valid = [iv for iv in interviews if iv.get("transcript")]
 
     if not valid:
+        logger.error("summary_endpoint: no transcripts available")
         raise HTTPException(status_code=400, detail="No transcripts")
 
     prompt = "Transcripts:\n"
@@ -210,4 +236,5 @@ async def summary_endpoint():
         prompt += f"\nName: {iv['name']}\nTranscript: {iv['transcript']}\n"
 
     result = analyze_summary(prompt)
+    logger.info("summary_endpoint: summary computed")
     return {"summary": result}
