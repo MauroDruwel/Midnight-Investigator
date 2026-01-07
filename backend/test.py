@@ -1,8 +1,9 @@
 
 
+import os
 import requests
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 def get_interviews():
     r = requests.get(f"{BASE_URL}/interviews")

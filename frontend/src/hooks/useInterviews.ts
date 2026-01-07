@@ -32,6 +32,10 @@ export function useInterviews() {
           setInterviews([]);
         }
       } catch (error) {
+        // Ignore aborts caused by component unmounts or refreshes; they are expected.
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
         console.error("Failed to load interviews", error);
         setOffline(true);
         setInterviews(OFFLINE_INTERVIEWS);

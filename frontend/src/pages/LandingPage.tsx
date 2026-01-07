@@ -7,13 +7,14 @@ import { HoverBorderGradient } from "@/components/ui/hover-border-gradient";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import CamIcon from "@/assets/cam.svg";
+import { API_BASE_URL } from "@/utils/interviewUtils";
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [hasInterviews, setHasInterviews] = useState(false);
 
   useEffect(() => {
-    fetch('http://localhost:8000/interviews')
+    fetch(`${API_BASE_URL}/interviews`)
       .then(response => response.json())
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {

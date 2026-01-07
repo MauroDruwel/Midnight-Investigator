@@ -48,7 +48,11 @@ export default function DashboardPage() {
     [interviews]
   );
 
-  const dockItems = getDockItems(() => setShowAddModal(true), () => setShowStoryModal(true));
+  const dockItems = getDockItems(
+    () => setShowAddModal(true),
+    () => setShowStoryModal(true),
+    () => setShowAddModal(true)
+  );
 
   return (
     <div className="relative h-screen w-full">
