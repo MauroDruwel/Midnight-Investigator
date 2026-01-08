@@ -1,6 +1,7 @@
 import os
 import requests
 import json
+import re
 from dotenv import load_dotenv
 load_dotenv()
 import logging
@@ -23,11 +24,16 @@ PROMPT_GUILT_SYSTEM = (
     "Respond like a teenager, keep it casual, but only return the number."
 )
 PROMPT_SUMMARY_SYSTEM = (
-    "You're a teenage detective AI. Given the following interview transcripts, rank the suspects from most to least likely to be the murderer. "
-    "For each, give a short, casual, teenage-style reason, with some max gen z vibe, like put as most memes in it as possible. "
+    "You're a teenage detective AI. Given the following interview transcripts, weave them into a coherent, dramatic story timeline of the murder case. "
+    "Rank the suspects from most to least likely to be the murderer. "
+    "Create a narrative timeline of events based on the clues and transcripts. "
+    "For each ranking entry, give a short, casual, teenage-style reason with Gen Z vibes (use emojis and slang). "
     "Return ONLY valid JSON (no markdown). The JSON must be an object of this exact shape: "
-    "{\"ranking\": [{\"name\": string, \"rank\": number, \"reason\": string}], \"summary\": string}. "
-    "Do not include a 'summary' field inside ranking items."
+    "{\"ranking\": [{\"name\": string, \"rank\": number, \"reason\": string}], \"summary\": string, \"timeline\": [{\"title\": string, \"content\": string}]}. "
+    "Specifically, for the 'timeline' field: "
+    "- The 'title' MUST be a specific time or date (e.g., '11:30 PM', 'Night of the Murder'). "
+    "- The 'content' MUST be CONCISE (max 1-2 punchy sentences). Keep it dramatic but brief."
+    "The 'summary' field should contain a high-level overview of the case results."
 )
 
 
@@ -91,6 +97,32 @@ def analyze_guilt(transcript):
             logger.debug(traceback.format_exc())
             raise RuntimeError(f"Both Hackclub and Gemini API failed: {ge}") from ge
 
+def extract_json(text):
+    """Robustly extract JSON from a string that might contain markdown blocks."""
+    if not text:
+        return None
+    # Try direct parse
+    try:
+        return json.loads(text.strip())
+    except Exception:
+        pass
+    # Try extracting from code blocks
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+    # Try finding the first { and last }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1:
+        try:
+            return json.loads(text[start:end+1])
+        except Exception:
+            pass
+    return None
+
 def analyze_summary(summary_prompt):
     logger.info("analyze_summary: starting analysis request; server=%s model=%s", SERVER_URL, MODEL)
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
@@ -108,9 +140,8 @@ def analyze_summary(summary_prompt):
         summary = None
         if "choices" in result and result["choices"]:
             content = result["choices"][0].get("message", {}).get("content", "")
-            try:
-                summary = json.loads(content)
-            except Exception:
+            summary = extract_json(content)
+            if summary is None:
                 summary = content.strip()
         else:
             summary = result
@@ -139,9 +170,8 @@ def analyze_summary(summary_prompt):
                 content = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             except Exception:
                 content = str(result)
-            try:
-                summary = json.loads(content)
-            except Exception:
+            summary = extract_json(content)
+            if summary is None:
                 summary = content
             logger.info("analyze_summary: Gemini result type=%s", type(summary))
             return summary

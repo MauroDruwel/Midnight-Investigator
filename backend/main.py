@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from typing import Optional
 import os
 import re
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 from backend.utils.interview_files import load_interviews, save_interviews
 from backend.utils.transcript import save_audio_file, generate_transcript
 from backend.utils.analyze import analyze_guilt, analyze_summary
+from backend.utils.cache_utils import get_data_hash, get_cached_summary, save_cached_summary
 
 # =====================================================
 # APP INIT (MUST BE FIRST)
@@ -60,6 +62,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount audio directory
+os.makedirs("backend/audio", exist_ok=True)
+app.mount("/audio", StaticFiles(directory="backend/audio"), name="audio")
 
 # =====================================================
 # CONFIG
@@ -152,6 +158,7 @@ def get_interviews():
 async def add_interview(
     name: str = Form(...),
     file: UploadFile = File(...),
+    is_demo: bool = Form(False),
 ):
     logger.info("add_interview: start for name=%s filename=%s", name, getattr(file, 'filename', None))
     content = await file.read()
@@ -177,9 +184,10 @@ async def add_interview(
     interviews.append(
         {
             "name": name,
-            "mp3_path": file_path,
+            "mp3_path": safe_filename,
             "guilt_level": -1,
             "transcript": transcript_text,
+            "is_demo": is_demo,
         }
     )
 
@@ -190,6 +198,7 @@ async def add_interview(
         "message": "Interview added",
         "name": name,
         "transcript": transcript_text,
+        "mp3_path": safe_filename,
     }
 
 
@@ -201,8 +210,10 @@ async def delete_interview(name: str):
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
 
-    if interview.get("mp3_path") and os.path.exists(interview["mp3_path"]):
-        os.remove(interview["mp3_path"])
+    if interview.get("mp3_path"):
+        file_to_del = os.path.join("backend/audio", interview["mp3_path"])
+        if os.path.exists(file_to_del):
+            os.remove(file_to_del)
 
     interviews = [iv for iv in interviews if iv.get("name") != name]
     save_interviews(interviews)
@@ -216,8 +227,10 @@ async def reset_interviews():
     interviews = load_interviews()
 
     for iv in interviews:
-        if iv.get("mp3_path") and os.path.exists(iv["mp3_path"]):
-            os.remove(iv["mp3_path"])
+        if iv.get("mp3_path"):
+            file_to_del = os.path.join("backend/audio", iv["mp3_path"])
+            if os.path.exists(file_to_del):
+                os.remove(file_to_del)
 
     save_interviews([])
     logger.info("reset_interviews: removed all interviews")
@@ -261,17 +274,37 @@ async def analyze_guilt_endpoint(request: Request, name: str = Form(None)):
 @app.get("/summary")
 async def summary_endpoint():
     interviews = load_interviews()
-    valid = [iv for iv in interviews if iv.get("transcript")]
+    valid = [iv for iv in interviews if iv.get("transcript") and not iv.get("is_demo", False)]
 
     if not valid:
         logger.error("summary_endpoint: no transcripts available")
         raise HTTPException(status_code=400, detail="No transcripts")
 
+    # Construct the data string for hashing
+    # Using sorted names to ensure deterministic hashing regardless of list order
+    combined_data = ""
+    for iv in sorted(valid, key=lambda x: x['name']):
+        combined_data += f"{iv['name']}:{iv['transcript']}\n"
+
+    data_hash = get_data_hash(combined_data)
+    
+    # Check cache
+    cached_result = get_cached_summary(data_hash)
+    if cached_result:
+        logger.info("summary_endpoint: returning cached result")
+        return {"summary": cached_result}
+
+    # Cache miss: generate new summary
+    logger.info("summary_endpoint: cache miss, generating new summary")
     prompt = "Transcripts:\n"
     for iv in valid:
         prompt += f"\nName: {iv['name']}\nTranscript: {iv['transcript']}\n"
 
     result = analyze_summary(prompt)
+    
+    if result and isinstance(result, dict):
+        save_cached_summary(data_hash, result)
+
     logger.info("summary_endpoint: summary computed")
     return {"summary": result}
 
