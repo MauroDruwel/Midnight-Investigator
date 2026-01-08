@@ -15,6 +15,7 @@ import type { AUFrame, TemporalEvent, AUValues } from "@/types/au-types";
 
 // Extracted imports
 import type { Interview, SummaryPayload } from "@/types/dashboard";
+import { setHardwareProcessing, setHardwareIdle } from "@/utils/hardware";
 import { API_BASE_URL, OFFLINE_INTERVIEWS } from "@/constants/dashboard";
 import { CometDashboardCard } from "@/components/dashboard/CometCard";
 import { ExpandableInterviews } from "@/components/dashboard/ExpandableInterviews";
@@ -76,19 +77,24 @@ export default function DashboardPage() {
       setAnalysisError(null);
       if (loading) setLoading(true);
       else setRefreshing(true);
+      setHardwareProcessing(); // Start spinner
 
       try {
         const response = await fetch(`${API_BASE_URL}/interviews`, { signal });
+        if (!response.ok) throw new Error("Failed to fetch interviews");
         const data = await response.json();
         if (Array.isArray(data)) setInterviews(data as Interview[]);
         else setInterviews([]);
+        setOffline(false);
       } catch (error) {
         console.error("Failed to load interviews", error);
         setOffline(true);
+        // fallback
         setInterviews(OFFLINE_INTERVIEWS);
       } finally {
         setLoading(false);
         setRefreshing(false);
+        setHardwareIdle(); // Reset to idle
       }
     },
     [loading]
@@ -126,14 +132,20 @@ export default function DashboardPage() {
       setStoryTitle("AI storyline");
       setStorySavedAt(new Date().toLocaleTimeString());
     } catch (error) {
+      console.error(error);
       setStoryError(error instanceof Error ? error.message : "Failed to load storyline.");
+      setAnalysisError("Failed to build case timeline.");
     } finally {
       setStoryLoading(false);
+      setHardwareIdle();
     }
   }, []);
 
   useEffect(() => {
-    if (showStoryModal) fetchStorySummary();
+    if (showStoryModal) {
+      setHardwareProcessing();
+      fetchStorySummary();
+    }
   }, [showStoryModal, fetchStorySummary]);
 
   const analyzedInterviews = useMemo(
@@ -195,6 +207,7 @@ export default function DashboardPage() {
     }
 
     setAddStatus("submitting");
+    setHardwareProcessing(); // Start spinner for upload/transcription
     setDraftInterview((prev) => ({ ...prev, transcript: "Processing transcript…" }));
 
     const formData = new FormData();
@@ -232,6 +245,7 @@ export default function DashboardPage() {
       setAddError(error instanceof Error ? error.message : "Upload failed.");
     } finally {
       setAddStatus("idle");
+      setHardwareIdle();
     }
   };
 

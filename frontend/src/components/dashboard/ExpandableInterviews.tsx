@@ -9,6 +9,7 @@ import {
     formatGuiltLevel,
     buildAudioUrl,
 } from "@/utils/dashboard-utils";
+import { setHardwareGuilt, setHardwareIdle, setHardwareProcessing } from "@/utils/hardware";
 import { DEFAULT_SUSPECT_IMAGE, FALLBACK_DATA_URL } from "@/constants/dashboard";
 
 type ExpandableInterviewsProps = {
@@ -148,6 +149,7 @@ export function ExpandableInterviews({
                                             type="button"
                                             onClick={(event) => {
                                                 event.stopPropagation();
+                                                setHardwareProcessing();
                                                 onAnalyze(active.name);
                                             }}
                                             disabled={analyzingName === active.name}
@@ -178,6 +180,9 @@ export function ExpandableInterviews({
                                             controls
                                             className="h-10 w-full"
                                             src={buildAudioUrl(active.mp3_path)}
+                                            onPlay={() => setHardwareProcessing()}
+                                            onPause={() => setHardwareIdle()}
+                                            onEnded={() => setHardwareIdle()}
                                         >
                                             Your browser does not support the audio element.
                                         </audio>
@@ -217,6 +222,12 @@ export function ExpandableInterviews({
                             layoutId={`card-${interview.name}-${id}`}
                             key={interview.name}
                             onClick={() => setActive(interview)}
+                            onMouseEnter={() => {
+                                if (typeof interview.guilt_level === 'number') {
+                                    setHardwareGuilt(interview.guilt_level);
+                                }
+                            }}
+                            onMouseLeave={() => setHardwareIdle()}
                             className="cursor-pointer rounded-2xl border border-white/10 bg-[#0F1012] p-4 text-white transition-colors duration-200 hover:border-emerald-400/60 hover:bg-[#13151a]"
                             transition={{ type: "spring", damping: 25, stiffness: 200 }}
                         >
