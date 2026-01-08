@@ -100,8 +100,12 @@ export function ExpandableInterviews({
                             layoutId={`card-${active.name}-${id}`}
                             ref={ref}
                             className="flex h-full w-full max-w-[520px] flex-col overflow-hidden rounded-3xl bg-[#0F1012] text-white shadow-2xl md:h-fit md:max-h-[92%]"
+                            transition={{ type: "spring", damping: 25, stiffness: 200 }}
                         >
-                            <motion.div layoutId={`image-${active.name}-${id}`}>
+                            <motion.div
+                                layoutId={`image-${active.name}-${id}`}
+                                className="w-full relative"
+                            >
                                 <img
                                     width={200}
                                     height={220}
@@ -109,7 +113,7 @@ export function ExpandableInterviews({
                                     alt={active.name}
                                     data-fallback="start"
                                     onError={handleImageError}
-                                    className="h-64 w-full object-cover object-[50%_40%]"
+                                    className="h-64 w-full object-cover object-[50%_40%] rounded-t-3xl"
                                 />
                             </motion.div>
 
@@ -213,7 +217,8 @@ export function ExpandableInterviews({
                             layoutId={`card-${interview.name}-${id}`}
                             key={interview.name}
                             onClick={() => setActive(interview)}
-                            className="cursor-pointer rounded-xl border border-white/10 bg-[#0F1012] p-4 text-white transition hover:border-emerald-400/60 hover:bg-[#13151a]"
+                            className="cursor-pointer rounded-2xl border border-white/10 bg-[#0F1012] p-4 text-white transition-colors duration-200 hover:border-emerald-400/60 hover:bg-[#13151a]"
+                            transition={{ type: "spring", damping: 25, stiffness: 200 }}
                         >
                             <div className="flex items-start gap-3">
                                 <motion.div layoutId={`image-${interview.name}-${id}`} className="w-20 shrink-0">
@@ -240,12 +245,9 @@ export function ExpandableInterviews({
                                             </span>
                                         )}
                                     </motion.h3>
-                                    <motion.p
-                                        layoutId={`description-${snippet}-${id}`}
-                                        className="text-sm text-neutral-300"
-                                    >
+                                    <p className="text-sm text-neutral-300">
                                         {snippet}
-                                    </motion.p>
+                                    </p>
                                     <span className="text-xs font-semibold text-emerald-300">
                                         Guilt: {formatGuiltLevel(interview.guilt_level)}
                                     </span>
